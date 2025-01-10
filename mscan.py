@@ -41,11 +41,10 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
-
 from scan_config import SCAN_DICTS
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+# Danh sách User-Agent giả lập
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Version/14.1.2 Safari/537.36",
@@ -57,12 +56,14 @@ USER_AGENTS = [
     "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
 ]
 
+# Khởi tạo chế độ tự động reset màu của colorama
 init(autoreset=True)
 
 def check_and_install_packages(packages):
     for package, version in packages.items():
         try:
             __import__(package)
+        # Thử import package, nếu không có cài đặt qua pip
         except ImportError:
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', f"{package}=={version}"])
 
@@ -71,7 +72,7 @@ def clear_screen():
 
 def display_menu():
     title = r"""
-__  __ ____                  
+ __  __ ____                  
 |  \/  / ___|  ___ __ _ _ __  
 | |\/| \___ \ / __/ _` | '_ \ 
 | |  | |___) | (_| (_| | | | |
@@ -109,7 +110,7 @@ def print_exit_menu():
     clear_screen()
 
     panel = Panel(r"""
-____               _ 
+ ____               _ 
 | __ ) _   _  ___  | |
 |  _ \| | | |/ _ \ | |
 | |_) | |_| |  __/ |_|
