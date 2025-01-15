@@ -21,7 +21,7 @@ import textwrap
 import threading
 import time
 from time import sleep
-from urllib.parse import urlparse, urlunparse, quote
+from urllib.parse import parse_qsl, urlparse, urlunparse, quote
 from urllib.parse import urlsplit, parse_qs, urlencode, urlunsplit
 import requests
 import urllib3
@@ -41,10 +41,11 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
+
 from scan_config import SCAN_DICTS
 
 
-# Danh sách User-Agent giả lập
+
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Version/14.1.2 Safari/537.36",
@@ -56,14 +57,12 @@ USER_AGENTS = [
     "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
 ]
 
-# Khởi tạo chế độ tự động reset màu của colorama
 init(autoreset=True)
 
 def check_and_install_packages(packages):
     for package, version in packages.items():
         try:
             __import__(package)
-        # Thử import package, nếu không có cài đặt qua pip
         except ImportError:
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', f"{package}=={version}"])
 
@@ -295,14 +294,20 @@ def prompt_for_payloads(scan_type):
             clear_screen()
             print(Fore.GREEN + f"Welcome to the {SCAN_DICTS[scan_type]['name']} Testing Tool!\n")
 
-def inject_payload(url, payload, encode=True):
-    encoded_payload = quote(payload.strip()) if encode else payload.strip()
+def inject_payload(url, payload, is_quote=True, encode=True, full_param=True):
+    encoded_payload = quote(payload.strip()) if is_quote else payload.strip()
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query, keep_blank_values=True)
     for param in query_params:
         query_params[param] = [encoded_payload]
-    encoded_query = urlencode(query_params, doseq=True)
-    final_url = urlunparse(parsed_url._replace(query=encoded_query))
+    if encode:
+        new_query = urlencode(query_params, doseq=True)
+    else:
+        if full_param:
+            new_query = '&'.join(f"{key}={encoded_payload}" for key, _ in parse_qsl(parsed_url.query, keep_blank_values=True))
+        else:
+            return f"{url}{payload}"
+    final_url = urlunparse(parsed_url._replace(query=new_query))
     return final_url
 
 def run_scanner(scan_type, scan_state=None):
@@ -319,7 +324,7 @@ def run_scanner(scan_type, scan_state=None):
     
     def create_driver():
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        #chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
@@ -351,7 +356,7 @@ def run_scanner(scan_type, scan_state=None):
             if stop_scanning.is_set():
                 return None, False
 
-            target_url = inject_payload(url, payload)
+            target_url = inject_payload(url, payload, encode=scan_type not in ['sqli', 'lfi', 'pt'], full_param=scan_type!='sqli')
             headers = {'User-Agent': get_random_user_agent()}
             try:
                 start_time = time.time()
@@ -360,15 +365,15 @@ def run_scanner(scan_type, scan_state=None):
                     headers=headers,
                     cookies={'cookie': cookie} if cookie else None
                 )
-                response_time = round(time.time() - start_time, 2)
+                response.raise_for_status()
                 result = None
                 is_vulnerable = False
-                if response.status_code == 200:
-                    vulnerability_detected = (response_time >= 10)
-                    if scan_type == 'sqli':
-                        is_vulnerable = response_time >= 10
-                    else:
-                        is_vulnerable = any(re.search(pattern, response.text) for pattern in success_criteria)
+                
+                response_time = round(time.time() - start_time, 2)
+                if scan_type == 'sqli':
+                    is_vulnerable = response_time >= 10
+                elif response.status_code == 200:
+                    is_vulnerable = any(re.search(pattern, response.text) for pattern in success_criteria)
 
                 if is_vulnerable:
                     result = Fore.RED + f"[✓]{Fore.RED} Vulnerable: {Fore.RED} {target_url} {Fore.RED} - Response Time: {response_time} seconds"
@@ -378,7 +383,7 @@ def run_scanner(scan_type, scan_state=None):
                 if stop_scanning.is_set():
                     return None, False
 
-                if is_vulnerable and scan_state:
+                if is_vulnerable and scan_state and not stop_scanning.is_set():
                     scan_state['vulnerability_found'] = True
                     scan_state['vulnerable_urls'].append(target_url)
                     scan_state['total_found'] += 1
@@ -387,18 +392,19 @@ def run_scanner(scan_type, scan_state=None):
                 return result, is_vulnerable
 
             except requests.exceptions.RequestException as e:
-                print(Fore.RED + f"[!] Error accessing {target_url}: {str(e)}")
-                return None, False
+                if scan_state:
+                    scan_state['total_scanned'] += 1
+                result = Fore.RED + f"[!] Error accessing {target_url}: {str(e)}"
+                return result, False
 
         def check_vulnerability(payload):
-            print("start")
             if stop_scanning.is_set():
                 return None, False
             driver = get_driver()
             is_vulnerable = False
             result = None
             try:
-                target_url = inject_payload(url, payload, encode=False)
+                target_url = inject_payload(url, payload, is_quote=False)
                 if not target_url:
                     return
                 try:
